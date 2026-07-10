@@ -9,7 +9,8 @@ One self-contained HTML file. No frameworks, no map SDK, no backend — just raw
 - **52,965 buildings** extruded at their real heights (OSM `height` / `building:levels` tags), sitting on real terrain
 - **13,722 streets** draped over a two-level elevation model (~13 m resolution in the center), so Lisbon's ladeiras actually climb
 - **The Tejo** stitched from the real OSM coastline, with both bridges built procedurally on their true centerlines (suspension cables and all)
-- **Metro** (4 lines, official colors) and **trams** (12E–28E), toggleable
+- **Metro** — the 4 lines in their official colors, toggleable
+- **The airport** — runway 02/20 with white edge lights and 128 green-lit taxiways
 - **Street search** over 3,692 street names, click-to-identify any street, fly-to landmarks
 - Orbit/pan/zoom-to-cursor navigation with inertia, keyboard (WASD/QE), touch and pinch
 

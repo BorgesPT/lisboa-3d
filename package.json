@@ -4,7 +4,8 @@
   "description": "Interactive 3D map of Lisbon - every building, street, hill, the Tejo and both bridges, in one self-contained HTML file",
   "scripts": {
     "fetch": "bash tools/fetch-data.sh",
-    "build": "node tools/build.js"
+    "build": "node tools/build.js && node tools/og.js",
+    "og": "node tools/og.js"
   },
   "keywords": [],
   "author": "",

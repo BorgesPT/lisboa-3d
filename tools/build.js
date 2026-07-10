@@ -142,6 +142,46 @@ for (const el of rjson.elements) {
   if (!nameIdx.has(nm)) { nameIdx.set(nm, names.length); names.push(nm); }
   roads.push({ pts, cls, ni: nameIdx.get(nm) });
 }
+/* airport: taxiways (cls 6) + runway centerlines (cls 5) join the roads buffer */
+let runways = []; // kept in meters for the ribbon meshes later
+const airportPath = path.join(DATA, 'airport.json');
+if (fs.existsSync(airportPath)) {
+  const ajson = JSON.parse(fs.readFileSync(airportPath, 'utf8'));
+  let nTaxi = 0;
+  for (const el of ajson.elements) {
+    if (el.type !== 'way' || !el.geometry) continue;
+    const t = el.tags || {};
+    if (t.disused || t.abandoned || t['disused:aeroway']) continue;
+    let pts = [];
+    for (const pnt of el.geometry) {
+      const [x, y] = proj(pnt.lat, pnt.lon);
+      if (!inRange(x) || !inRange(y)) { pts = null; break; }
+      const last = pts[pts.length - 1];
+      if (last && last[0] === x && last[1] === y) continue;
+      pts.push([x, y]);
+    }
+    if (!pts || pts.length < 2) continue;
+    pts = subdivide(simplify(pts, 2), 25 * Q);
+    if (t.aeroway === 'runway') {
+      const nm = `Pista ${t.ref || ''} — Aeroporto Humberto Delgado`.replace('  ', ' ');
+      if (!nameIdx.has(nm)) { nameIdx.set(nm, names.length); names.push(nm); }
+      roads.push({ pts, cls: 5, ni: nameIdx.get(nm) });
+      runways.push({
+        pts: el.geometry.map(pnt => projM(pnt.lat, pnt.lon)),
+        width: parseFloat(t.width) || 55,
+      });
+    } else {
+      const nm = 'Aeroporto Humberto Delgado' + (t.ref ? ` — caminho ${t.ref}` : '');
+      if (!nameIdx.has(nm)) { nameIdx.set(nm, names.length); names.push(nm); }
+      roads.push({ pts, cls: 6, ni: nameIdx.get(nm) });
+      nTaxi++;
+    }
+  }
+  console.log(`airport: ${runways.length} runways, ${nTaxi} taxiways`);
+} else {
+  console.log('airport: data/airport.json missing, skipping');
+}
+
 let rPts = 0;
 for (const r of roads) rPts += r.pts.length;
 const rbuf = Buffer.alloc(roads.length * 5 + rPts * 4);
@@ -485,7 +525,27 @@ const at = (line, s) => { // interp line point+dir at chainage s
     addBox(p.x, p.n, p.ax, p.an, 2.6, 8, Math.min(terra(p.x, p.n), 1) - 1, deckY(s) - 3, DECK_SIDE);
   }
 }
-console.log(`bridge mesh: ${mesh.pos.length / 3} verts, lines: ${blines.pos.length / 6} segs`);
+/* ---- runway ribbons: dark strip + white edge lights ---- */
+const RWY_TOP = [26, 33, 60], RWY_EDGE = [212, 222, 255];
+for (const rw of runways) {
+  const line = resample(rw.pts, 30).map(p => [p[0], p[1], terra(p[0], p[1]) + 0.9]);
+  const half = rw.width / 2;
+  const L = [], R = [];
+  for (let i = 0; i < line.length; i++) {
+    const a = line[Math.max(0, i - 1)], b = line[Math.min(line.length - 1, i + 1)];
+    let dx = b[0] - a[0], dn = b[1] - a[1];
+    const l = Math.hypot(dx, dn) || 1; dx /= l; dn /= l;
+    L.push([line[i][0] - dn * half, line[i][1] + dx * half, line[i][2]]);
+    R.push([line[i][0] + dn * half, line[i][1] - dx * half, line[i][2]]);
+  }
+  for (let i = 1; i < line.length; i++) {
+    meshQuad([L[i - 1], R[i - 1], R[i], L[i]], [RWY_TOP, RWY_TOP, RWY_TOP, RWY_TOP]);
+    seg([L[i - 1][0], L[i - 1][1], L[i - 1][2] + 0.5], [L[i][0], L[i][1], L[i][2] + 0.5], RWY_EDGE);
+    seg([R[i - 1][0], R[i - 1][1], R[i - 1][2] + 0.5], [R[i][0], R[i][1], R[i][2] + 0.5], RWY_EDGE);
+  }
+}
+
+console.log(`bridge+runway mesh: ${mesh.pos.length / 3} verts, lines: ${blines.pos.length / 6} segs`);
 
 /* ================= metro lines ================= */
 const tjson = JSON.parse(fs.readFileSync(path.join(DATA, 'transit.json'), 'utf8'));
@@ -557,6 +617,7 @@ const LM = [
   ['Amoreiras', 38.7229, -9.1620, 1800, 0.95],
   ['Ponte 25 de Abril', 38.6935, -9.1772, 2400, 0.62],
   ['Ponte Vasco da Gama', 38.7660, -9.0730, 3600, 0.7],
+  ['Aeroporto', 38.7742, -9.1342, 3000, 0.85],
 ].map(([n, lat, lon, d, p]) => { const [x, y] = proj(lat, lon); return [n, x, y, d, p]; });
 
 /* ================= inject ================= */

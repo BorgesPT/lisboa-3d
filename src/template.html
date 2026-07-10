@@ -1,4 +1,23 @@
-<title>Lisboa 3D — every building in the city</title>
+<title>Lisboa 3D — a cidade inteira no teu navegador</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Os 52 965 edifícios de Lisboa em 3D, sobre as colinas reais, com o Tejo, as pontes, o metro e o aeroporto. Um mapa noturno interativo feito com dados abertos do OpenStreetMap.">
+<meta name="theme-color" content="#05060f">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-512.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="canonical" href="https://lisboa-3d.vercel.app/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Lisboa 3D — a cidade inteira no teu navegador">
+<meta property="og:description" content="Os 52 965 edifícios de Lisboa em 3D, com as colinas, o Tejo, as pontes, o metro e o aeroporto. Dados abertos, um só ficheiro, zero frameworks.">
+<meta property="og:url" content="https://lisboa-3d.vercel.app/">
+<meta property="og:image" content="https://lisboa-3d.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Lisboa 3D">
+<meta name="twitter:description" content="Os 52 965 edifícios de Lisboa em 3D, no navegador. Dados abertos do OpenStreetMap.">
+<meta name="twitter:image" content="https://lisboa-3d.vercel.app/og.png">
 <style>
   :root {
     --night: #05060f;
@@ -100,6 +119,38 @@
     content: ""; position: absolute; left: 50%; bottom: 6px; width: 8px; height: 8px;
     background: var(--tram); transform: translateX(-50%) rotate(45deg);
   }
+  #aboutBtn {
+    position: fixed; bottom: 20px; left: 26px; z-index: 6;
+    width: 30px; height: 30px; border-radius: 50%;
+    font: italic 700 14px/1 Georgia, serif; color: var(--ink-dim);
+    background: var(--panel); border: 1px solid rgba(120, 140, 220, 0.28);
+    cursor: pointer; backdrop-filter: blur(8px);
+  }
+  #aboutBtn:hover, #aboutBtn:focus-visible { color: var(--tram); border-color: var(--tram); outline: none; }
+  #hint { bottom: 20px; left: 66px; }
+  #about {
+    position: fixed; inset: 0; z-index: 9; background: rgba(3, 4, 12, 0.72);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  #about[hidden] { display: none; }
+  #aboutCard {
+    position: relative; max-width: 52ch; background: #0b0e21;
+    border: 1px solid rgba(120, 140, 220, 0.35); border-radius: 16px;
+    padding: 28px 30px; box-shadow: 0 20px 80px rgba(0, 0, 0, 0.6);
+  }
+  #aboutCard h2 { margin: 0 0 12px; font-size: 30px; letter-spacing: 0.1em; }
+  #aboutCard h2 span { color: var(--tram); }
+  #aboutCard p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.65; color: var(--ink); }
+  #aboutCard p b { color: var(--azulejo); }
+  #aboutCard .credits { font-size: 11.5px; color: var(--ink-dim); margin: 16px 0 0; line-height: 1.8; }
+  #aboutCard a { color: var(--tram); text-decoration: none; }
+  #aboutCard a:hover { text-decoration: underline; }
+  #aboutClose {
+    position: absolute; top: 10px; right: 12px; width: 30px; height: 30px;
+    font: 400 20px/1 system-ui; color: var(--ink-dim);
+    background: none; border: none; cursor: pointer;
+  }
+  #aboutClose:hover { color: var(--ink); }
   #loader {
     position: fixed; inset: 0; z-index: 10; background: var(--night);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -113,9 +164,19 @@
   #loadmsg { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-dim); }
   @media (max-width: 640px) {
     #hint { display: none; }
-    #places { max-width: 92vw; left: 22px; justify-content: flex-start; }
-    #places .lbl { text-align: left; }
-    #title .sub { font-size: 12px; }
+    #title { top: 14px; left: 16px; }
+    #title h1 { font-size: 38px; }
+    #title .sub { font-size: 11px; max-width: 30ch; }
+    #search { top: 14px; right: 14px; width: min(200px, 48vw); }
+    #si { padding: 9px 11px; font-size: 12px; }
+    #places {
+      left: 14px; right: 14px; bottom: 14px; max-width: none;
+      flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start;
+      padding-bottom: 4px; -webkit-overflow-scrolling: touch;
+    }
+    #places .lbl { display: none; }
+    #places button { flex: 0 0 auto; }
+    #aboutBtn { bottom: 64px; left: 14px; }
   }
   @media (prefers-reduced-motion: reduce) {
     #loader { transition: none; }
@@ -147,6 +208,18 @@
 </div>
 
 <div class="hud" id="tag"><div class="chip" id="tagname"></div></div>
+
+<button id="aboutBtn" aria-label="sobre este mapa">i</button>
+<div id="about" hidden>
+  <div id="aboutCard">
+    <button id="aboutClose" aria-label="fechar">×</button>
+    <h2 class="wordmark">Lisb<span>o</span>a 3D</h2>
+    <p>Os <b>52 965 edifícios</b> de Lisboa, em 3D, às suas alturas reais, sobre as colinas verdadeiras da cidade — com o Tejo, as duas pontes, as quatro linhas do metro e o aeroporto.</p>
+    <p>Tudo num único ficheiro HTML: sem frameworks, sem servidores de mapas — apenas WebGL e dados abertos.</p>
+    <p class="credits">Dados © colaboradores do <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (ODbL) · Elevação: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">Terrain Tiles on AWS</a><br>
+    Código aberto no <a href="https://github.com/BorgesPT/lisboa-3d" target="_blank" rel="noopener">GitHub</a> · feito com <a href="https://claude.com/claude-code" target="_blank" rel="noopener">Claude Code</a></p>
+  </div>
+</div>
 
 <div id="loader">
   <div class="wordmark">Lisb<span>o</span>a</div>
@@ -325,6 +398,8 @@ async function buildCity() {
 /* ---------- roads (draped on terrain, kept for picking) ---------- */
 const ROAD_CC = [
   [255, 200, 96], [255, 168, 84], [214, 116, 108], [156, 88, 148], [74, 52, 116],
+  [216, 226, 255], // runway centerline
+  [42, 190, 118],  // taxiway (green, like the real lights)
 ];
 function buildRoads() {
   const bytes = b64ToBytes(B64_ROADS);
@@ -824,6 +899,12 @@ function applyKeys() {
     b.addEventListener('click', () => flyTo(ux * 0.5, -uy * 0.5, dist, pitch));
     $places.appendChild(b);
   }
+
+  const $about = document.getElementById('about');
+  document.getElementById('aboutBtn').addEventListener('click', () => { $about.hidden = false; });
+  document.getElementById('aboutClose').addEventListener('click', () => { $about.hidden = true; });
+  $about.addEventListener('click', e => { if (e.target === $about) $about.hidden = true; });
+  addEventListener('keydown', e => { if (e.key === 'Escape') $about.hidden = true; });
 
   const $tt = document.getElementById('transitToggle');
   $tt.addEventListener('click', () => {

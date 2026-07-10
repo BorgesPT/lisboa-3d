@@ -1,0 +1,14 @@
+{
+  "name": "Lisboa 3D",
+  "short_name": "Lisboa 3D",
+  "description": "Os 52 965 edifícios de Lisboa em 3D, no navegador.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#05060f",
+  "theme_color": "#05060f",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
