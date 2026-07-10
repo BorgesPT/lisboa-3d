@@ -128,7 +128,7 @@
 <div class="hud" id="title">
   <div class="eyebrow">38.72° N · 9.14° W · OpenStreetMap</div>
   <h1 class="wordmark">Lisboa</h1>
-  <div class="sub"><b>__N_BUILDINGS__</b> edifícios e <b>__N_ROADS__</b> ruas — colinas, Tejo, pontes, metro e elétricos, em 3D no teu navegador.</div>
+  <div class="sub"><b>__N_BUILDINGS__</b> edifícios e <b>__N_ROADS__</b> ruas — colinas, Tejo, pontes e metro, em 3D no teu navegador.</div>
 </div>
 
 <div class="hud" id="hint">
@@ -138,7 +138,7 @@
 
 <div class="hud" id="places">
   <div class="lbl">Voar para</div>
-  <button id="transitToggle" aria-pressed="true"><span class="dot" style="background:#4E84C4"></span><span class="dot" style="background:#F4BC18"></span><span class="dot" style="background:#00AAA6"></span><span class="dot" style="background:#DF096F"></span><span class="dot" style="background:#ffc43d"></span>&nbsp;Metro &amp; elétricos</button>
+  <button id="transitToggle" aria-pressed="true"><span class="dot" style="background:#5283C5"></span><span class="dot" style="background:#FDB913"></span><span class="dot" style="background:#00AAA6"></span><span class="dot" style="background:#EE2B74"></span>&nbsp;Metro</button>
 </div>
 
 <div class="hud" id="search">
@@ -385,8 +385,8 @@ function buildTransit() {
     const n = dv.getUint16(o, true); o += 3 + n * 4;
     segs += n - 1; ways++; pts += n;
   }
-  const pos = new Float32Array(segs * 4 * 3); // two stacked passes for a thicker glow
-  const col = new Uint8Array(segs * 4 * 3);
+  const pos = new Float32Array(segs * 6 * 3); // 3 parallel strands -> bold solid line
+  const col = new Uint8Array(segs * 6 * 3);
   const pk = { pts: new Float32Array(pts * 3), start: new Uint32Array(ways + 1), line: new Uint8Array(ways), n: ways };
   let vo = 0, po = 0, w = 0;
   o = 0;
@@ -400,14 +400,17 @@ function buildTransit() {
     for (let i = 0; i < n; i++) {
       const x = dv.getInt16(o, true) * 0.5; o += 2;
       const z = -dv.getInt16(o, true) * 0.5; o += 2;
-      const y = terra(x, z) + 2.2;
+      const y = terra(x, z) + 2.5;
       pk.pts[po++] = x; pk.pts[po++] = y; pk.pts[po++] = z;
       if (i > 0) {
-        for (let k = 0; k < 2; k++) {
-          const dy = k * 1.3;
-          pos[vo * 3] = px; pos[vo * 3 + 1] = py + dy; pos[vo * 3 + 2] = pz;
+        const dx = x - px, dz = z - pz;
+        const l = Math.hypot(dx, dz) || 1;
+        const ox = -dz / l, oz = dx / l; // horizontal perpendicular
+        for (let k = -1; k <= 1; k++) {
+          const kx = ox * k * 1.5, kz = oz * k * 1.5;
+          pos[vo * 3] = px + kx; pos[vo * 3 + 1] = py; pos[vo * 3 + 2] = pz + kz;
           col[vo * 3] = c[0]; col[vo * 3 + 1] = c[1]; col[vo * 3 + 2] = c[2]; vo++;
-          pos[vo * 3] = x; pos[vo * 3 + 1] = y + dy; pos[vo * 3 + 2] = z;
+          pos[vo * 3] = x + kx; pos[vo * 3 + 1] = y; pos[vo * 3 + 2] = z + kz;
           col[vo * 3] = c[0]; col[vo * 3 + 1] = c[1]; col[vo * 3 + 2] = c[2]; vo++;
         }
       }
@@ -976,6 +979,10 @@ function applyKeys() {
     gl.drawElements(gl.TRIANGLES, mCity.count, gl.UNSIGNED_INT, 0);
     bindMesh(sh, mBridge);
     gl.drawElements(gl.TRIANGLES, mBridge.count, gl.UNSIGNED_INT, 0);
+    if (transitOn) { // solid brand colors, no additive wash
+      bindMesh(sh, mTransit);
+      gl.drawArrays(gl.LINES, 0, mTransit.count);
+    }
 
     gl.depthMask(false);
     gl.enable(gl.BLEND);
@@ -983,10 +990,6 @@ function applyKeys() {
     gl.uniform1f(sh.uMode, 1);
     bindMesh(sh, mRoads);
     gl.drawArrays(gl.LINES, 0, mRoads.count);
-    if (transitOn) {
-      bindMesh(sh, mTransit);
-      gl.drawArrays(gl.LINES, 0, mTransit.count);
-    }
     gl.disable(gl.BLEND);
     gl.depthMask(true);
 

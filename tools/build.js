@@ -487,26 +487,31 @@ const at = (line, s) => { // interp line point+dir at chainage s
 }
 console.log(`bridge mesh: ${mesh.pos.length / 3} verts, lines: ${blines.pos.length / 6} segs`);
 
-/* ================= metro + tram lines ================= */
+/* ================= metro lines ================= */
 const tjson = JSON.parse(fs.readFileSync(path.join(DATA, 'transit.json'), 'utf8'));
-const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-const lineDefs = new Map(); // key -> {name, col, ways:Map(wayId->pts)}
+// official Metro de Lisboa palette (Wikidata P465 per line)
+const METRO_COL = {
+  Azul: [82, 131, 197],      // #5283C5
+  Amarela: [253, 185, 19],   // #FDB913
+  Verde: [0, 170, 166],      // #00AAA6
+  Vermelha: [238, 43, 116],  // #EE2B74
+};
+const METRO_ORDER = { Azul: 0, Amarela: 1, Verde: 2, Vermelha: 3 };
+const lineDefs = new Map(); // ref -> {name, col, ways:Map(wayId->pts)}
 for (const rel of tjson.elements) {
   if (rel.type !== 'relation' || !rel.members) continue;
   const t = rel.tags || {};
-  const isMetro = t.route === 'subway';
-  const keyId = (isMetro ? 'M' : 'T') + (t.ref || t.name);
-  if (!lineDefs.has(keyId)) {
-    lineDefs.set(keyId, {
-      name: isMetro ? `Linha ${t.ref} — Metro` : `Elétrico ${t.ref}`,
-      metro: isMetro,
-      // metro keeps official colors; trams go tram-yellow (28E a touch brighter)
-      col: isMetro ? hex2rgb(t.colour || '#888888') : (t.ref === '28E' ? [255, 214, 92] : [232, 180, 70]),
+  if (t.route !== 'subway' || !METRO_COL[t.ref]) continue;
+  if (!lineDefs.has(t.ref)) {
+    lineDefs.set(t.ref, {
+      name: `Linha ${t.ref}`,
+      metro: true,
+      col: METRO_COL[t.ref],
       ways: new Map(),
-      order: (isMetro ? 0 : 100) + (t.ref || '').charCodeAt(0),
+      order: METRO_ORDER[t.ref],
     });
   }
-  const def = lineDefs.get(keyId);
+  const def = lineDefs.get(t.ref);
   for (const m of rel.members) {
     if (m.type !== 'way' || !m.geometry || m.geometry.length < 2) continue;
     if (m.role && /platform|stop/.test(m.role)) continue;
@@ -540,7 +545,7 @@ for (const w of tways) {
   tbuf.writeUInt8(w.li, o); o += 1;
   for (const [x, y] of w.pts) { tbuf.writeInt16LE(x, o); o += 2; tbuf.writeInt16LE(y, o); o += 2; }
 }
-console.log(`transit: ${lines.length} lines (${lines.map(l => l.name.replace(/ — Metro/, '')).join(', ')}), ${tways.length} ways, ${tPts} pts`);
+console.log(`transit: ${lines.length} lines (${lines.map(l => l.name).join(', ')}), ${tways.length} ways, ${tPts} pts`);
 
 /* ================= landmarks ================= */
 const LM = [
