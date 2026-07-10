@@ -1,0 +1,1013 @@
+<title>Lisboa 3D — every building in the city</title>
+<style>
+  :root {
+    --night: #05060f;
+    --ink: #eef1ff;
+    --ink-dim: #8b93c9;
+    --tram: #ffc43d;
+    --azulejo: #5ad2f0;
+    --panel: rgba(9, 11, 26, 0.62);
+  }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--night); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  #gl.dragging { cursor: grabbing; }
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 42%, transparent 55%, rgba(2, 3, 10, 0.55) 100%);
+  }
+  .hud { position: fixed; z-index: 3; pointer-events: none; }
+  .wordmark {
+    font-family: "Avenir Next Condensed", "Arial Narrow", "Helvetica Neue", system-ui, sans-serif;
+    font-weight: 700; text-transform: uppercase;
+  }
+  #title { top: 22px; left: 26px; }
+  #title .eyebrow {
+    font-size: 11px; letter-spacing: 0.34em; color: var(--tram);
+    text-transform: uppercase; margin-bottom: 6px; font-weight: 600;
+  }
+  #title h1 {
+    margin: 0; font-size: clamp(44px, 7vw, 76px); line-height: 0.92;
+    letter-spacing: 0.045em; color: var(--ink);
+    text-shadow: 0 0 34px rgba(90, 210, 240, 0.35);
+  }
+  #title .sub {
+    margin-top: 10px; font-size: 13px; color: var(--ink-dim);
+    font-variant-numeric: tabular-nums; max-width: 36ch; line-height: 1.5;
+  }
+  #title .sub b { color: var(--azulejo); font-weight: 600; }
+  #hint {
+    bottom: 20px; left: 26px; font-size: 12px; color: var(--ink-dim);
+    letter-spacing: 0.02em; line-height: 1.9;
+  }
+  #hint kbd {
+    font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink);
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 4px; padding: 1px 5px;
+  }
+  #places {
+    bottom: 20px; right: 22px; pointer-events: auto;
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; max-width: 44vw;
+  }
+  #places .lbl {
+    flex-basis: 100%; text-align: right; font-size: 10px; letter-spacing: 0.3em;
+    text-transform: uppercase; color: var(--ink-dim); margin-bottom: 2px;
+  }
+  #places button {
+    font: 600 12px/1 system-ui, sans-serif; letter-spacing: 0.03em;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid rgba(120, 140, 220, 0.28); border-radius: 999px;
+    padding: 9px 14px; cursor: pointer; backdrop-filter: blur(8px);
+    transition: border-color 0.15s, color 0.15s, box-shadow 0.15s;
+  }
+  #places button:hover, #places button:focus-visible {
+    border-color: var(--tram); color: var(--tram);
+    box-shadow: 0 0 18px rgba(255, 196, 61, 0.25); outline: none;
+  }
+  #places .dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    margin-right: 2px; vertical-align: 1px;
+  }
+  #places button.off { opacity: 0.4; }
+  #search { top: 22px; right: 22px; width: min(280px, 62vw); pointer-events: auto; z-index: 5; }
+  #si {
+    width: 100%; box-sizing: border-box; font: 500 13px/1 system-ui, sans-serif;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid rgba(120, 140, 220, 0.28); border-radius: 10px;
+    padding: 11px 13px; backdrop-filter: blur(8px); outline: none;
+  }
+  #si:focus { border-color: var(--tram); }
+  #si::placeholder { color: var(--ink-dim); }
+  #sr { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+  #sr button {
+    text-align: left; font: 500 12px/1.3 system-ui, sans-serif; color: var(--ink);
+    background: var(--panel); border: 1px solid transparent; border-radius: 8px;
+    padding: 8px 11px; cursor: pointer; backdrop-filter: blur(8px);
+  }
+  #sr button:hover, #sr button.sel { border-color: var(--tram); color: var(--tram); }
+  #tag { display: none; z-index: 4; transform: translate(-50%, -100%); padding-bottom: 14px; }
+  #tag .chip {
+    font: 600 13px/1.2 system-ui, sans-serif; color: var(--night);
+    background: var(--tram); border-radius: 8px; padding: 8px 12px;
+    box-shadow: 0 0 24px rgba(255, 196, 61, 0.45); white-space: nowrap;
+  }
+  #tag .chip small { display: block; font-weight: 500; font-size: 10px; opacity: 0.72; margin-top: 2px; }
+  #tag::after {
+    content: ""; position: absolute; left: 50%; bottom: 6px; width: 8px; height: 8px;
+    background: var(--tram); transform: translateX(-50%) rotate(45deg);
+  }
+  #loader {
+    position: fixed; inset: 0; z-index: 10; background: var(--night);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; transition: opacity 0.7s;
+  }
+  #loader.done { opacity: 0; pointer-events: none; }
+  #loader .wordmark { font-size: 58px; letter-spacing: 0.14em; color: var(--ink); }
+  #loader .wordmark span { color: var(--tram); }
+  #bar { width: 220px; height: 2px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  #bar i { display: block; height: 100%; width: 0%; background: var(--tram); border-radius: 2px; transition: width 0.2s; }
+  #loadmsg { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-dim); }
+  @media (max-width: 640px) {
+    #hint { display: none; }
+    #places { max-width: 92vw; left: 22px; justify-content: flex-start; }
+    #places .lbl { text-align: left; }
+    #title .sub { font-size: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #loader { transition: none; }
+  }
+</style>
+
+<canvas id="gl"></canvas>
+<div id="vignette"></div>
+
+<div class="hud" id="title">
+  <div class="eyebrow">38.72° N · 9.14° W · OpenStreetMap</div>
+  <h1 class="wordmark">Lisboa</h1>
+  <div class="sub"><b>__N_BUILDINGS__</b> edifícios e <b>__N_ROADS__</b> ruas — colinas, Tejo, pontes, metro e elétricos, em 3D no teu navegador.</div>
+</div>
+
+<div class="hud" id="hint">
+  arrastar — rodar &nbsp;·&nbsp; <kbd>scroll</kbd> — zoom &nbsp;·&nbsp; <kbd>shift</kbd>+arrastar — mover<br>
+  <kbd>clique</kbd> — nome da rua &nbsp;·&nbsp; <kbd>2× clique</kbd> — voar até lá &nbsp;·&nbsp; <kbd>WASD</kbd>/setas — passear
+</div>
+
+<div class="hud" id="places">
+  <div class="lbl">Voar para</div>
+  <button id="transitToggle" aria-pressed="true"><span class="dot" style="background:#4E84C4"></span><span class="dot" style="background:#F4BC18"></span><span class="dot" style="background:#00AAA6"></span><span class="dot" style="background:#DF096F"></span><span class="dot" style="background:#ffc43d"></span>&nbsp;Metro &amp; elétricos</button>
+</div>
+
+<div class="hud" id="search">
+  <input id="si" type="search" placeholder="procurar rua…" autocomplete="off" spellcheck="false" aria-label="procurar rua">
+  <div id="sr"></div>
+</div>
+
+<div class="hud" id="tag"><div class="chip" id="tagname"></div></div>
+
+<div id="loader">
+  <div class="wordmark">Lisb<span>o</span>a</div>
+  <div id="bar"><i></i></div>
+  <div id="loadmsg">a acordar a cidade…</div>
+</div>
+
+<script>
+'use strict';
+const B64_BUILDINGS = "__B64_BUILDINGS__";
+const B64_ROADS = "__B64_ROADS__";
+const B64_HEIGHT = "__B64_HEIGHT__";
+const STREET_NAMES = "__NAMES__";
+const WATER = "__WATER__";
+const BRIDGE_MESH = "__BRIDGE_MESH__";
+const BRIDGE_LINES = "__BRIDGE_LINES__";
+const LANDMARKS = "__LANDMARKS__";
+const B64_TRANSIT = "__B64_TRANSIT__";
+const TRANSIT_LINES = "__TRANSIT_LINES__";
+
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $bar = document.querySelector('#bar i');
+const $msg = document.getElementById('loadmsg');
+const $tag = document.getElementById('tag');
+const $tagname = document.getElementById('tagname');
+
+function b64ToBytes(s) {
+  const bin = atob(s), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+const yieldFrame = () => new Promise(r => setTimeout(r, 0));
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp01 = t => Math.max(0, Math.min(1, t));
+
+/* ---------- terrain: outer 800^2 over +-17 km, inner 1200^2 over +-8 km ---------- */
+const HS = 17000, HN = 800, HS2 = 8000, HN2 = 1200;
+const HM_ALL = b64ToBytes(B64_HEIGHT);
+const HM = HM_ALL.subarray(0, HN * HN);
+const HMI = HM_ALL.subarray(HN * HN, HN * HN + HN2 * HN2);
+function sampleGrid(hm, N, S, x, z) {
+  let q = (x + S) / (2 * S) * (N - 1), r = (S + z) / (2 * S) * (N - 1);
+  q = Math.max(0, Math.min(N - 1.001, q)); r = Math.max(0, Math.min(N - 1.001, r));
+  const q0 = q | 0, r0 = r | 0, fq = q - q0, fr = r - r0;
+  const a = hm[r0 * N + q0], b = hm[r0 * N + q0 + 1], c = hm[(r0 + 1) * N + q0], d = hm[(r0 + 1) * N + q0 + 1];
+  return a + (b - a) * fq + ((c + (d - c) * fq) - (a + (b - a) * fq)) * fr;
+}
+function terra(x, z) { // world meters -> elevation
+  const d = Math.max(Math.abs(x), Math.abs(z));
+  if (d >= HS2 - 100) return sampleGrid(HM, HN, HS, x, z);
+  const inner = sampleGrid(HMI, HN2, HS2, x, z);
+  if (d < HS2 - 700) return inner;
+  const t = (d - (HS2 - 700)) / 600;
+  return inner + (sampleGrid(HM, HN, HS, x, z) - inner) * t;
+}
+
+/* ---------- ear-clipping triangulation ---------- */
+function triangulate(xs, ys, order, outIdx) {
+  const V = order.slice();
+  const cross = (a, b, c) =>
+    (xs[b] - xs[a]) * (ys[c] - ys[a]) - (ys[b] - ys[a]) * (xs[c] - xs[a]);
+  let guard = V.length * V.length + 10;
+  while (V.length > 3 && guard-- > 0) {
+    let clipped = false, bestI = 0, bestCr = -Infinity;
+    for (let i = 0; i < V.length; i++) {
+      const a = V[(i + V.length - 1) % V.length], b = V[i], c = V[(i + 1) % V.length];
+      const cr = cross(a, b, c);
+      if (cr > bestCr) { bestCr = cr; bestI = i; }
+      if (cr <= 0) continue;
+      let ear = true;
+      for (let j = 0; j < V.length; j++) {
+        const p = V[j];
+        if (p === a || p === b || p === c) continue;
+        if (cross(a, b, p) >= 0 && cross(b, c, p) >= 0 && cross(c, a, p) >= 0) { ear = false; break; }
+      }
+      if (ear) { outIdx.push(a, b, c); V.splice(i, 1); clipped = true; break; }
+    }
+    if (!clipped) {
+      const i = bestI, a = V[(i + V.length - 1) % V.length], b = V[i], c = V[(i + 1) % V.length];
+      outIdx.push(a, b, c); V.splice(i, 1);
+    }
+  }
+  if (V.length === 3) outIdx.push(V[0], V[1], V[2]);
+}
+
+/* ---------- palette ---------- */
+const WALL_LO = [58, 118, 198], WALL_HI = [255, 168, 92];
+const ROOF_LO = [98, 196, 238], ROOF_HI = [255, 208, 122];
+const FLOOR = [7, 9, 24];
+const LIGHT2 = [0.552, 0.834];
+const heightRamp = h => clamp01((h - 12) / 48);
+
+/* ---------- buildings ---------- */
+async function buildCity() {
+  $msg.textContent = 'a descodificar dados…';
+  await yieldFrame();
+  const bytes = b64ToBytes(B64_BUILDINGS);
+  const dv = new DataView(bytes.buffer);
+  let o = 0, nb = 0, totPts = 0;
+  while (o < bytes.length) {
+    const n = dv.getUint16(o, true);
+    o += 4 + n * 4; nb++; totPts += n;
+  }
+  const pos = new Float32Array(totPts * 5 * 3);
+  const col = new Uint8Array(totPts * 5 * 3);
+  const idx = new Uint32Array(totPts * 9);
+  let vo = 0, io = 0;
+  o = 0;
+  const xs = new Float64Array(512), ys = new Float64Array(512), es = new Float64Array(512);
+  let done = 0;
+  const CHUNK = 4000;
+  while (o < bytes.length) {
+    const stop = Math.min(nb, done + CHUNK);
+    for (; done < stop; done++) {
+      const n = dv.getUint16(o, true); o += 2;
+      const h = dv.getUint16(o, true) * 0.25; o += 2;
+      let eMin = 1e9, eMax = -1e9;
+      for (let i = 0; i < n; i++) {
+        xs[i] = dv.getInt16(o, true) * 0.5; o += 2;
+        ys[i] = dv.getInt16(o, true) * 0.5; o += 2;
+        const e = terra(xs[i], -ys[i]);
+        es[i] = e;
+        if (e < eMin) eMin = e; if (e > eMax) eMax = e;
+      }
+      const yBase = eMin - 2.5, yTop = eMax + h;
+      let area = 0;
+      for (let i = 0, j = n - 1; i < n; j = i++) area += (xs[j] * ys[i] - xs[i] * ys[j]);
+      if (area < 0) {
+        for (let i = 0, j = n - 1; i < j; i++, j--) {
+          let t = xs[i]; xs[i] = xs[j]; xs[j] = t;
+          t = ys[i]; ys[i] = ys[j]; ys[j] = t;
+        }
+      }
+      const t = heightRamp(h);
+      const wallTop = [lerp(WALL_LO[0], WALL_HI[0], t), lerp(WALL_LO[1], WALL_HI[1], t), lerp(WALL_LO[2], WALL_HI[2], t)];
+      const jitter = 0.86 + ((done * 2654435761 >>> 16) % 100) / 100 * 0.22;
+      const roofC = [
+        Math.min(255, lerp(ROOF_LO[0], ROOF_HI[0], t) * jitter),
+        Math.min(255, lerp(ROOF_LO[1], ROOF_HI[1], t) * jitter),
+        Math.min(255, lerp(ROOF_LO[2], ROOF_HI[2], t) * jitter)];
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const ex = xs[i] - xs[j], ey = ys[i] - ys[j];
+        const el = Math.hypot(ex, ey) || 1;
+        const nx = ey / el, ny = -ex / el;
+        const shade = 0.42 + 0.58 * Math.max(0, nx * LIGHT2[0] + ny * LIGHT2[1]);
+        const topR = wallTop[0] * shade, topG = wallTop[1] * shade, topB = wallTop[2] * shade;
+        const wx0 = xs[j], wz0 = -ys[j], wx1 = xs[i], wz1 = -ys[i];
+        const base = vo;
+        pos[vo * 3] = wx0; pos[vo * 3 + 1] = yBase; pos[vo * 3 + 2] = wz0;
+        col[vo * 3] = FLOOR[0] + topR * 0.16; col[vo * 3 + 1] = FLOOR[1] + topG * 0.16; col[vo * 3 + 2] = FLOOR[2] + topB * 0.16; vo++;
+        pos[vo * 3] = wx1; pos[vo * 3 + 1] = yBase; pos[vo * 3 + 2] = wz1;
+        col[vo * 3] = FLOOR[0] + topR * 0.16; col[vo * 3 + 1] = FLOOR[1] + topG * 0.16; col[vo * 3 + 2] = FLOOR[2] + topB * 0.16; vo++;
+        pos[vo * 3] = wx1; pos[vo * 3 + 1] = yTop; pos[vo * 3 + 2] = wz1;
+        col[vo * 3] = topR; col[vo * 3 + 1] = topG; col[vo * 3 + 2] = topB; vo++;
+        pos[vo * 3] = wx0; pos[vo * 3 + 1] = yTop; pos[vo * 3 + 2] = wz0;
+        col[vo * 3] = topR; col[vo * 3 + 1] = topG; col[vo * 3 + 2] = topB; vo++;
+        idx[io++] = base; idx[io++] = base + 1; idx[io++] = base + 2;
+        idx[io++] = base; idx[io++] = base + 2; idx[io++] = base + 3;
+      }
+      const roofBase = vo;
+      for (let i = 0; i < n; i++) {
+        pos[vo * 3] = xs[i]; pos[vo * 3 + 1] = yTop; pos[vo * 3 + 2] = -ys[i];
+        col[vo * 3] = roofC[0]; col[vo * 3 + 1] = roofC[1]; col[vo * 3 + 2] = roofC[2]; vo++;
+      }
+      const tri = [];
+      triangulate(xs, ys, Array.from({ length: n }, (_, i) => i), tri);
+      for (let i = 0; i < tri.length; i++) idx[io++] = roofBase + tri[i];
+    }
+    $bar.style.width = (5 + 70 * done / nb).toFixed(1) + '%';
+    $msg.textContent = 'a levantar ' + done.toLocaleString('pt-PT') + ' edifícios…';
+    await yieldFrame();
+  }
+  return { pos: pos.subarray(0, vo * 3), col: col.subarray(0, vo * 3), idx: idx.subarray(0, io) };
+}
+
+/* ---------- roads (draped on terrain, kept for picking) ---------- */
+const ROAD_CC = [
+  [255, 200, 96], [255, 168, 84], [214, 116, 108], [156, 88, 148], [74, 52, 116],
+];
+function buildRoads() {
+  const bytes = b64ToBytes(B64_ROADS);
+  const dv = new DataView(bytes.buffer);
+  let o = 0, segs = 0, ways = 0, pts = 0;
+  while (o < bytes.length) {
+    const n = dv.getUint16(o, true); o += 5 + n * 4;
+    segs += n - 1; ways++; pts += n;
+  }
+  const pos = new Float32Array(segs * 2 * 3);
+  const col = new Uint8Array(segs * 2 * 3);
+  // picking structures
+  const pk = {
+    pts: new Float32Array(pts * 3),
+    start: new Uint32Array(ways + 1),
+    name: new Uint16Array(ways),
+    n: ways,
+  };
+  let vo = 0, po = 0, w = 0;
+  o = 0;
+  while (o < bytes.length) {
+    const n = dv.getUint16(o, true); o += 2;
+    const c = ROAD_CC[dv.getUint8(o)]; o += 1;
+    pk.name[w] = dv.getUint16(o, true); o += 2;
+    pk.start[w] = po / 3;
+    let px = 0, py = 0, pz = 0;
+    for (let i = 0; i < n; i++) {
+      const x = dv.getInt16(o, true) * 0.5; o += 2;
+      const z = -dv.getInt16(o, true) * 0.5; o += 2;
+      const y = terra(x, z) + 1.0;
+      pk.pts[po++] = x; pk.pts[po++] = y; pk.pts[po++] = z;
+      if (i > 0) {
+        pos[vo * 3] = px; pos[vo * 3 + 1] = py; pos[vo * 3 + 2] = pz;
+        col[vo * 3] = c[0]; col[vo * 3 + 1] = c[1]; col[vo * 3 + 2] = c[2]; vo++;
+        pos[vo * 3] = x; pos[vo * 3 + 1] = y; pos[vo * 3 + 2] = z;
+        col[vo * 3] = c[0]; col[vo * 3 + 1] = c[1]; col[vo * 3 + 2] = c[2]; vo++;
+      }
+      px = x; py = y; pz = z;
+    }
+    w++;
+  }
+  pk.start[w] = po / 3;
+  // append bridge glow lines
+  const bl = BRIDGE_LINES;
+  const nSeg = bl.pos.length / 6;
+  const pos2 = new Float32Array(pos.length + bl.pos.length);
+  const col2 = new Uint8Array(col.length + bl.col.length);
+  pos2.set(pos.subarray(0, vo * 3)); pos2.set(bl.pos, vo * 3);
+  col2.set(col.subarray(0, vo * 3)); col2.set(bl.col, vo * 3);
+  return { pos: pos2, col: col2, n: vo + nSeg * 2, pk };
+}
+
+function buildTransit() {
+  const bytes = b64ToBytes(B64_TRANSIT);
+  const dv = new DataView(bytes.buffer);
+  let o = 0, segs = 0, ways = 0, pts = 0;
+  while (o < bytes.length) {
+    const n = dv.getUint16(o, true); o += 3 + n * 4;
+    segs += n - 1; ways++; pts += n;
+  }
+  const pos = new Float32Array(segs * 4 * 3); // two stacked passes for a thicker glow
+  const col = new Uint8Array(segs * 4 * 3);
+  const pk = { pts: new Float32Array(pts * 3), start: new Uint32Array(ways + 1), line: new Uint8Array(ways), n: ways };
+  let vo = 0, po = 0, w = 0;
+  o = 0;
+  while (o < bytes.length) {
+    const n = dv.getUint16(o, true); o += 2;
+    const li = dv.getUint8(o); o += 1;
+    const c = TRANSIT_LINES[li].c;
+    pk.line[w] = li;
+    pk.start[w] = po / 3;
+    let px = 0, py = 0, pz = 0;
+    for (let i = 0; i < n; i++) {
+      const x = dv.getInt16(o, true) * 0.5; o += 2;
+      const z = -dv.getInt16(o, true) * 0.5; o += 2;
+      const y = terra(x, z) + 2.2;
+      pk.pts[po++] = x; pk.pts[po++] = y; pk.pts[po++] = z;
+      if (i > 0) {
+        for (let k = 0; k < 2; k++) {
+          const dy = k * 1.3;
+          pos[vo * 3] = px; pos[vo * 3 + 1] = py + dy; pos[vo * 3 + 2] = pz;
+          col[vo * 3] = c[0]; col[vo * 3 + 1] = c[1]; col[vo * 3 + 2] = c[2]; vo++;
+          pos[vo * 3] = x; pos[vo * 3 + 1] = y + dy; pos[vo * 3 + 2] = z;
+          col[vo * 3] = c[0]; col[vo * 3 + 1] = c[1]; col[vo * 3 + 2] = c[2]; vo++;
+        }
+      }
+      px = x; py = y; pz = z;
+    }
+    w++;
+  }
+  pk.start[w] = po / 3;
+  transitPick = pk;
+  return { pos, col, n: vo };
+}
+
+function buildGround() {
+  const N = 500, S = HS;
+  const pos = new Float32Array((N + 1) * (N + 1) * 3);
+  const col = new Uint8Array((N + 1) * (N + 1) * 3);
+  const idx = new Uint32Array(N * N * 6);
+  let v = 0;
+  for (let r = 0; r <= N; r++) for (let q = 0; q <= N; q++) {
+    const x = -S + 2 * S * q / N, z = -S + 2 * S * r / N;
+    const e = terra(x, z);
+    const t = clamp01(e / 220);
+    pos[v * 3] = x; pos[v * 3 + 1] = e; pos[v * 3 + 2] = z;
+    col[v * 3] = lerp(9, 30, t); col[v * 3 + 1] = lerp(11, 36, t); col[v * 3 + 2] = lerp(28, 66, t); v++;
+  }
+  let i = 0;
+  for (let r = 0; r < N; r++) for (let q = 0; q < N; q++) {
+    const a = r * (N + 1) + q, b = a + 1, c = a + N + 1, d = c + 1;
+    idx[i++] = a; idx[i++] = b; idx[i++] = d; idx[i++] = a; idx[i++] = d; idx[i++] = c;
+  }
+  return { pos, col, idx };
+}
+
+function buildWater() {
+  const src = WATER.pos, n = src.length / 2;
+  const pos = new Float32Array(n * 3);
+  const col = new Uint8Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    pos[i * 3] = src[i * 2]; pos[i * 3 + 1] = 0.5; pos[i * 3 + 2] = src[i * 2 + 1];
+    col[i * 3] = 13; col[i * 3 + 1] = 24; col[i * 3 + 2] = 58;
+  }
+  return { pos, col, idx: new Uint32Array(WATER.idx) };
+}
+
+function buildBridges() {
+  return {
+    pos: new Float32Array(BRIDGE_MESH.pos),
+    col: new Uint8Array(BRIDGE_MESH.col),
+    idx: new Uint32Array(BRIDGE_MESH.idx),
+  };
+}
+
+/* ---------- tiny mat4 (column-major) ---------- */
+function perspective(out, fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  out.fill(0);
+  out[0] = f / aspect; out[5] = f; out[10] = (far + near) * nf; out[11] = -1; out[14] = 2 * far * near * nf;
+}
+function lookAt(out, ex, ey, ez, tx, ty, tz) {
+  let fx = tx - ex, fy = ty - ey, fz = tz - ez;
+  let l = Math.hypot(fx, fy, fz); fx /= l; fy /= l; fz /= l;
+  let sx = -fz, sy = 0, sz = fx;
+  l = Math.hypot(sx, sy, sz) || 1; sx /= l; sy /= l; sz /= l;
+  const ux = sy * fz - sz * fy, uy = sz * fx - sx * fz, uz = sx * fy - sy * fx;
+  out[0] = sx; out[1] = ux; out[2] = -fx; out[3] = 0;
+  out[4] = sy; out[5] = uy; out[6] = -fy; out[7] = 0;
+  out[8] = sz; out[9] = uz; out[10] = -fz; out[11] = 0;
+  out[12] = -(sx * ex + sy * ey + sz * ez);
+  out[13] = -(ux * ex + uy * ey + uz * ez);
+  out[14] = (fx * ex + fy * ey + fz * ez);
+  out[15] = 1;
+}
+function mul(out, a, b) {
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    out[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+  }
+}
+
+/* ---------- GL ---------- */
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl', { antialias: true, alpha: false, powerPreference: 'high-performance' });
+const extIdx = gl && gl.getExtension('OES_element_index_uint');
+
+const VS = `
+attribute vec3 aPos; attribute vec3 aCol;
+uniform mat4 uMVP; uniform vec3 uEye; uniform float uFogDen;
+varying vec3 vCol; varying float vFog; varying vec3 vWorld;
+void main() {
+  gl_Position = uMVP * vec4(aPos, 1.0);
+  vCol = aCol; vWorld = aPos;
+  float d = distance(aPos, uEye) * uFogDen;
+  vFog = clamp(1.0 - exp(-d * d), 0.0, 1.0);
+}`;
+const FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec3 uFogCol; uniform float uMode; uniform float uTime;
+varying vec3 vCol; varying float vFog; varying vec3 vWorld;
+void main() {
+  vec3 c = vCol;
+  if (uMode > 1.5) {
+    float s = sin(vWorld.x * 0.0021 + uTime) * sin(vWorld.z * 0.0017 - uTime * 0.73)
+            + 0.5 * sin(vWorld.x * 0.011 - uTime * 1.7) * sin(vWorld.z * 0.013 + uTime * 1.1);
+    c *= 1.0 + 0.14 * s;
+  }
+  vec3 fogTo = (uMode > 0.5 && uMode < 1.5) ? vec3(0.0) : uFogCol;
+  gl_FragColor = vec4(mix(c, fogTo, vFog), 1.0);
+}`;
+
+function makeProgram() {
+  const compile = (type, src) => {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = n => gl.getUniformLocation(p, n);
+  return {
+    prog: p,
+    aPos: gl.getAttribLocation(p, 'aPos'), aCol: gl.getAttribLocation(p, 'aCol'),
+    uMVP: u('uMVP'), uEye: u('uEye'), uFogDen: u('uFogDen'),
+    uFogCol: u('uFogCol'), uMode: u('uMode'), uTime: u('uTime'),
+  };
+}
+function makeMesh(data, hasIdx) {
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, data.pos, gl.STATIC_DRAW);
+  const cbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, cbo);
+  gl.bufferData(gl.ARRAY_BUFFER, data.col, gl.STATIC_DRAW);
+  let ibo = null, count;
+  if (hasIdx) {
+    ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
+    count = data.idx.length;
+  } else count = data.n;
+  return { vbo, cbo, ibo, count };
+}
+function bindMesh(sh, m) {
+  gl.bindBuffer(gl.ARRAY_BUFFER, m.vbo);
+  gl.enableVertexAttribArray(sh.aPos);
+  gl.vertexAttribPointer(sh.aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, m.cbo);
+  gl.enableVertexAttribArray(sh.aCol);
+  gl.vertexAttribPointer(sh.aCol, 3, gl.UNSIGNED_BYTE, true, 0, 0);
+  if (m.ibo) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ibo);
+}
+
+/* ---------- camera ---------- */
+const FOG = [7 / 255, 8 / 255, 20 / 255];
+const FOV = 0.96;
+const cam = { tx: 0, tz: 0, ty: 0, dist: 2600, distT: 2600, yaw: 0.25, pitch: 0.95 };
+const vel = { yaw: 0, pitch: 0, px: 0, pz: 0 };
+let zoomAnchor = null, lastWheel = 0;
+let anim = null;
+let autoDrift = !REDUCED;
+let eyeCur = [0, 0, 0];
+
+function stopMotion() { anim = null; autoDrift = false; vel.yaw = vel.pitch = vel.px = vel.pz = 0; }
+function flyTo(tx, tz, dist, pitch, yaw) {
+  const norm = a => Math.atan2(Math.sin(a), Math.cos(a));
+  const y0 = norm(cam.yaw);
+  const dyaw = yaw === undefined ? 0 : norm(yaw - y0);
+  anim = {
+    t0: performance.now(), dur: REDUCED ? 1 : 1900,
+    from: { tx: cam.tx, tz: cam.tz, dist: cam.dist, pitch: cam.pitch, yaw: y0 },
+    to: { tx, tz, dist, pitch, yaw: y0 + dyaw },
+  };
+  cam.distT = dist;
+  autoDrift = false;
+}
+const easeInOut = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+function stepAnim(now) {
+  if (!anim) return;
+  const t = Math.min(1, (now - anim.t0) / anim.dur), e = easeInOut(t);
+  for (const k of ['tx', 'tz', 'dist', 'pitch', 'yaw']) cam[k] = lerp(anim.from[k], anim.to[k], e);
+  cam.distT = cam.dist;
+  if (t >= 1) anim = null;
+}
+
+/* ---------- picking ray ---------- */
+function rayFromScreen(cx, cy) {
+  const ndcX = (cx / innerWidth) * 2 - 1, ndcY = 1 - (cy / innerHeight) * 2;
+  const [ex, ey, ez] = eyeCur;
+  let fx = cam.tx - ex, fy = cam.ty - ey, fz = cam.tz - ez;
+  const fl = Math.hypot(fx, fy, fz); fx /= fl; fy /= fl; fz /= fl;
+  let rx = -fz, rz = fx;
+  const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
+  // u = r x f
+  const uX = -rz * fy, uY = rz * fx - rx * fz, uZ = rx * fy;
+  const tf = Math.tan(FOV / 2), asp = innerWidth / innerHeight;
+  let dx = fx + rx * ndcX * tf * asp + uX * ndcY * tf;
+  let dy = fy + 0 + uY * ndcY * tf;
+  let dz = fz + rz * ndcX * tf * asp + uZ * ndcY * tf;
+  const dl = Math.hypot(dx, dy, dz); dx /= dl; dy /= dl; dz /= dl;
+  return { ox: ex, oy: ey, oz: ez, dx, dy, dz };
+}
+function rayGround(cx, cy) { // march ray against terrain
+  const r = rayFromScreen(cx, cy);
+  let t = 0, step = 12;
+  let prevT = 0;
+  for (let i = 0; i < 700 && t < 45000; i++) {
+    t += step; step *= 1.045;
+    const x = r.ox + r.dx * t, y = r.oy + r.dy * t, z = r.oz + r.dz * t;
+    if (Math.abs(x) > HS || Math.abs(z) > HS) { if (y < 0) break; prevT = t; continue; }
+    if (y <= terra(x, z)) {
+      let lo = prevT, hi = t;
+      for (let k = 0; k < 12; k++) {
+        const m = (lo + hi) / 2;
+        const mx = r.ox + r.dx * m, my = r.oy + r.dy * m, mz = r.oz + r.dz * m;
+        if (my <= terra(mx, mz)) hi = m; else lo = m;
+      }
+      const ft = (lo + hi) / 2;
+      return [r.ox + r.dx * ft, r.oy + r.dy * ft, r.oz + r.dz * ft];
+    }
+    prevT = t;
+  }
+  return null;
+}
+
+/* ---------- street / transit picking ---------- */
+let roadPick = null, transitPick = null;
+let tagWorld = null, tagUntil = 0;
+function nearestOnWays(pk, gx, gz, maxD2) {
+  const { pts, start, n } = pk;
+  let best = -1, bestD = maxD2, bx = 0, by = 0, bz = 0;
+  for (let w = 0; w < n; w++) {
+    for (let i = start[w]; i + 1 < start[w + 1]; i++) {
+      const ax = pts[i * 3], az = pts[i * 3 + 2];
+      const cx2 = pts[i * 3 + 3], cz2 = pts[i * 3 + 5];
+      const dx = cx2 - ax, dz = cz2 - az;
+      const l2 = dx * dx + dz * dz || 1;
+      let t = ((gx - ax) * dx + (gz - az) * dz) / l2;
+      t = Math.max(0, Math.min(1, t));
+      const qx = ax + dx * t - gx, qz = az + dz * t - gz;
+      const d2 = qx * qx + qz * qz;
+      if (d2 < bestD) {
+        bestD = d2; best = w;
+        bx = ax + dx * t; bz = az + dz * t;
+        by = pts[i * 3 + 1] + (pts[i * 3 + 4] - pts[i * 3 + 1]) * t;
+      }
+    }
+  }
+  return best < 0 ? null : { w: best, d2: bestD, x: bx, y: by, z: bz };
+}
+function showTag(name, sub, x, y, z, ms) {
+  $tagname.innerHTML = '';
+  $tagname.appendChild(document.createTextNode(name));
+  const sEl = document.createElement('small');
+  sEl.textContent = sub;
+  $tagname.appendChild(sEl);
+  tagWorld = [x, y, z];
+  tagUntil = performance.now() + (ms || 7000);
+}
+function pickStreet(cx, cy) {
+  if (!roadPick) return;
+  const g = rayGround(cx, cy);
+  if (!g) { tagWorld = null; return; }
+  const [gx, , gz] = g;
+  const maxD = Math.max(22, cam.dist * 0.028), maxD2 = maxD * maxD;
+  const road = nearestOnWays(roadPick, gx, gz, maxD2);
+  const tr = transitOn && transitPick ? nearestOnWays(transitPick, gx, gz, maxD2) : null;
+  if (tr && (!road || tr.d2 < road.d2)) {
+    const line = TRANSIT_LINES[transitPick.line[tr.w]];
+    showTag(line.n, line.m ? 'Metropolitano de Lisboa' : 'Carris', tr.x, tr.y + 2, tr.z);
+    return;
+  }
+  if (!road) { tagWorld = null; $tag.style.display = 'none'; return; }
+  const nm = STREET_NAMES[roadPick.name[road.w]];
+  showTag(nm || 'rua sem nome', Math.round(terra(road.x, road.z)) + ' m de altitude', road.x, road.y + 2, road.z);
+}
+
+/* ---------- input ---------- */
+const pointers = new Map();
+let pinchD = 0;
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now(), btn: e.button, shift: e.shiftKey, moved: 0 });
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    pinchD = Math.hypot(a.x - b.x, a.y - b.y);
+  }
+  canvas.classList.add('dragging');
+  stopMotion();
+});
+canvas.addEventListener('pointermove', e => {
+  const p = pointers.get(e.pointerId);
+  if (!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  p.moved += Math.abs(dx) + Math.abs(dy);
+  if (pointers.size === 2) {
+    p.x = e.clientX; p.y = e.clientY;
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinchD > 0) { cam.dist = Math.max(140, Math.min(16000, cam.dist * pinchD / (d || 1))); cam.distT = cam.dist; }
+    pinchD = d;
+    pan(dx / 2, dy / 2, false);
+    return;
+  }
+  p.x = e.clientX; p.y = e.clientY;
+  if (p.btn === 2 || p.shift) pan(dx, dy, true);
+  else {
+    cam.yaw -= dx * 0.005;
+    cam.pitch = Math.max(0.12, Math.min(1.5, cam.pitch + dy * 0.005));
+    vel.yaw = vel.yaw * 0.5 - dx * 0.005 * 0.5;
+    vel.pitch = vel.pitch * 0.5 + dy * 0.005 * 0.5;
+  }
+});
+function endPointer(e) {
+  const p = pointers.get(e.pointerId);
+  pointers.delete(e.pointerId);
+  pinchD = 0;
+  if (!pointers.size) canvas.classList.remove('dragging');
+  if (p && p.moved < 6 && performance.now() - p.t0 < 450) {
+    vel.yaw = vel.pitch = vel.px = vel.pz = 0;
+    pickStreet(p.x0, p.y0);
+  }
+}
+canvas.addEventListener('pointerup', endPointer);
+canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('dblclick', e => {
+  e.preventDefault();
+  const g = rayGround(e.clientX, e.clientY);
+  if (g) flyTo(g[0], g[2], Math.max(500, cam.dist * 0.45), cam.pitch);
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  anim = null; autoDrift = false;
+  const now = performance.now();
+  if (now - lastWheel > 280) zoomAnchor = rayGround(e.clientX, e.clientY);
+  lastWheel = now;
+  cam.distT = Math.max(140, Math.min(16000, cam.distT * Math.exp(e.deltaY * 0.0011)));
+}, { passive: false });
+
+function pan(dx, dy, withInertia) {
+  const s = Math.sin(cam.yaw), c = Math.cos(cam.yaw);
+  const k = cam.dist * 0.0014;
+  const mx = (-c * dx - s * dy) * k, mz = (s * dx - c * dy) * k;
+  cam.tx += mx; cam.tz += mz;
+  if (withInertia) { vel.px = vel.px * 0.5 + mx * 0.5; vel.pz = vel.pz * 0.5 + mz * 0.5; }
+  clampTarget();
+}
+function clampTarget() {
+  cam.tx = Math.max(-15500, Math.min(15500, cam.tx));
+  cam.tz = Math.max(-15500, Math.min(15500, cam.tz));
+}
+const keys = new Set();
+let transitOn = true;
+addEventListener('keydown', e => {
+  if (e.target && e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
+    keys.add(k); stopMotion(); e.preventDefault();
+  }
+});
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+function applyKeys() {
+  if (!keys.size) return;
+  const s = Math.sin(cam.yaw), c = Math.cos(cam.yaw);
+  const k = cam.dist * 0.014;
+  let fx = 0, fz = 0;
+  if (keys.has('w') || keys.has('arrowup')) { fx += -s; fz += -c; }
+  if (keys.has('s') || keys.has('arrowdown')) { fx += s; fz += c; }
+  if (keys.has('a') || keys.has('arrowleft')) { fx += -c; fz += s; }
+  if (keys.has('d') || keys.has('arrowright')) { fx += c; fz += -s; }
+  cam.tx += fx * k; cam.tz += fz * k;
+  if (keys.has('q')) cam.yaw += 0.025;
+  if (keys.has('e')) cam.yaw -= 0.025;
+  clampTarget();
+}
+
+/* ---------- main ---------- */
+(async function main() {
+  if (!gl || !extIdx) { $msg.textContent = 'WebGL indisponível neste navegador'; return; }
+  const sh = makeProgram();
+  const city = await buildCity();
+  $msg.textContent = 'a encher o Tejo…';
+  $bar.style.width = '80%';
+  await yieldFrame();
+  const roads = buildRoads();
+  roadPick = roads.pk;
+  const transit = buildTransit();
+  const ground = buildGround();
+  const water = buildWater();
+  const bridges = buildBridges();
+  $bar.style.width = '94%';
+  await yieldFrame();
+
+  const mCity = makeMesh(city, true);
+  const mGround = makeMesh(ground, true);
+  const mWater = makeMesh(water, true);
+  const mBridge = makeMesh(bridges, true);
+  const mRoads = makeMesh(roads, false);
+  const mTransit = makeMesh(transit, false);
+  $bar.style.width = '100%';
+
+  const $places = document.getElementById('places');
+  for (const [name, ux, uy, dist, pitch] of LANDMARKS) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.addEventListener('click', () => flyTo(ux * 0.5, -uy * 0.5, dist, pitch));
+    $places.appendChild(b);
+  }
+
+  const $tt = document.getElementById('transitToggle');
+  $tt.addEventListener('click', () => {
+    transitOn = !transitOn;
+    $tt.classList.toggle('off', !transitOn);
+    $tt.setAttribute('aria-pressed', String(transitOn));
+  });
+
+  /* street search */
+  const $si = document.getElementById('si'), $sr = document.getElementById('sr');
+  const norm = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const namesN = STREET_NAMES.map(norm);
+  let sel = -1, hits = [];
+  function closeSearch() { $sr.innerHTML = ''; hits = []; sel = -1; }
+  function gotoStreet(ni) {
+    const { pts, start, name, n } = roadPick;
+    let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9, bestW = -1, bestLen = -1;
+    for (let w = 0; w < n; w++) {
+      if (name[w] !== ni) continue;
+      for (let i = start[w]; i < start[w + 1]; i++) {
+        const x = pts[i * 3], z = pts[i * 3 + 2];
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      }
+      const len = start[w + 1] - start[w];
+      if (len > bestLen) { bestLen = len; bestW = w; }
+    }
+    if (bestW < 0) return;
+    const size = Math.max(maxX - minX, maxZ - minZ);
+    flyTo((minX + maxX) / 2, (minZ + maxZ) / 2, Math.min(5000, Math.max(700, size * 1.7 + 400)), 0.95);
+    const mid = (start[bestW] + start[bestW + 1] - 1) >> 1;
+    const mx = pts[mid * 3], my = pts[mid * 3 + 1], mz = pts[mid * 3 + 2];
+    showTag(STREET_NAMES[ni], Math.round(terra(mx, mz)) + ' m de altitude', mx, my + 2, mz, 9000);
+    closeSearch();
+    $si.blur();
+  }
+  function renderHits() {
+    $sr.innerHTML = '';
+    hits.forEach((ni, i) => {
+      const b = document.createElement('button');
+      b.textContent = STREET_NAMES[ni];
+      if (i === sel) b.classList.add('sel');
+      b.addEventListener('click', () => gotoStreet(ni));
+      $sr.appendChild(b);
+    });
+  }
+  $si.addEventListener('input', () => {
+    const q = norm($si.value.trim());
+    if (q.length < 2) { closeSearch(); return; }
+    const starts = [], within = [];
+    for (let i = 1; i < namesN.length && starts.length + within.length < 60; i++) {
+      const at = namesN[i].indexOf(q);
+      if (at === 0) starts.push(i);
+      else if (at > 0) within.push(i);
+    }
+    hits = starts.concat(within).slice(0, 8);
+    sel = hits.length ? 0 : -1;
+    renderHits();
+  });
+  $si.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { sel = Math.min(sel + 1, hits.length - 1); renderHits(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { sel = Math.max(sel - 1, 0); renderHits(); e.preventDefault(); }
+    else if (e.key === 'Enter' && sel >= 0) { gotoStreet(hits[sel]); }
+    else if (e.key === 'Escape') { closeSearch(); $si.blur(); }
+  });
+  canvas.addEventListener('pointerdown', closeSearch);
+
+  const baixa = LANDMARKS[0];
+  cam.tx = baixa[1] * 0.5; cam.tz = -baixa[2] * 0.5;
+  cam.ty = terra(cam.tx, cam.tz);
+  if (REDUCED) { cam.dist = cam.distT = 2600; cam.pitch = 0.95; }
+  else {
+    cam.dist = cam.distT = 12000; cam.pitch = 1.42; cam.yaw = 0.55;
+    setTimeout(() => flyTo(cam.tx, cam.tz, 2600, 0.95, 0.25), 350);
+    setTimeout(() => { if (!anim) autoDrift = true; }, 2600);
+  }
+
+  const P = new Float32Array(16), V = new Float32Array(16), MVP = new Float32Array(16);
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  function resize() {
+    const w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+      gl.viewport(0, 0, w, h);
+    }
+  }
+  addEventListener('resize', resize);
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  gl.clearColor(FOG[0], FOG[1], FOG[2], 1);
+  gl.useProgram(sh.prog);
+  gl.uniform3fv(sh.uFogCol, FOG);
+  document.getElementById('loader').classList.add('done');
+
+  const t0 = performance.now();
+  function frame(now) {
+    resize();
+    stepAnim(now);
+    applyKeys();
+    if (autoDrift && !pointers.size && !keys.size) cam.yaw += 0.00035;
+
+    // inertia
+    if (!pointers.size && !anim) {
+      if (Math.abs(vel.yaw) > 1e-5 || Math.abs(vel.pitch) > 1e-5) {
+        cam.yaw += vel.yaw; cam.pitch = Math.max(0.12, Math.min(1.5, cam.pitch + vel.pitch));
+        vel.yaw *= 0.9; vel.pitch *= 0.9;
+      }
+      if (Math.abs(vel.px) > 0.01 || Math.abs(vel.pz) > 0.01) {
+        cam.tx += vel.px; cam.tz += vel.pz; clampTarget();
+        vel.px *= 0.9; vel.pz *= 0.9;
+      }
+    }
+    // smooth zoom toward cursor
+    if (Math.abs(cam.distT - cam.dist) > 0.5 && !anim) {
+      const nd = lerp(cam.dist, cam.distT, 0.2);
+      if (zoomAnchor) {
+        const k = nd / cam.dist;
+        cam.tx = zoomAnchor[0] + (cam.tx - zoomAnchor[0]) * k;
+        cam.tz = zoomAnchor[2] + (cam.tz - zoomAnchor[2]) * k;
+        clampTarget();
+      }
+      cam.dist = nd;
+    }
+    // target rides the terrain
+    cam.ty += (terra(cam.tx, cam.tz) - cam.ty) * 0.12;
+
+    const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+    let ex = cam.tx + cam.dist * cp * Math.sin(cam.yaw);
+    let ey = cam.ty + cam.dist * sp;
+    let ez = cam.tz + cam.dist * cp * Math.cos(cam.yaw);
+    const eGround = terra(ex, ez) + 14;
+    if (ey < eGround) ey = eGround;
+    eyeCur = [ex, ey, ez];
+    perspective(P, FOV, canvas.width / canvas.height, 4, 90000);
+    lookAt(V, ex, ey, ez, cam.tx, cam.ty, cam.tz);
+    mul(MVP, P, V);
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.uniformMatrix4fv(sh.uMVP, false, MVP);
+    gl.uniform3f(sh.uEye, ex, ey, ez);
+    gl.uniform1f(sh.uFogDen, 1.05 / 11000);
+    gl.uniform1f(sh.uTime, (now - t0) / 1000);
+
+    gl.uniform1f(sh.uMode, 0);
+    bindMesh(sh, mGround);
+    gl.drawElements(gl.TRIANGLES, mGround.count, gl.UNSIGNED_INT, 0);
+    gl.uniform1f(sh.uMode, 2);
+    bindMesh(sh, mWater);
+    gl.drawElements(gl.TRIANGLES, mWater.count, gl.UNSIGNED_INT, 0);
+    gl.uniform1f(sh.uMode, 0);
+    bindMesh(sh, mCity);
+    gl.drawElements(gl.TRIANGLES, mCity.count, gl.UNSIGNED_INT, 0);
+    bindMesh(sh, mBridge);
+    gl.drawElements(gl.TRIANGLES, mBridge.count, gl.UNSIGNED_INT, 0);
+
+    gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.uniform1f(sh.uMode, 1);
+    bindMesh(sh, mRoads);
+    gl.drawArrays(gl.LINES, 0, mRoads.count);
+    if (transitOn) {
+      bindMesh(sh, mTransit);
+      gl.drawArrays(gl.LINES, 0, mTransit.count);
+    }
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
+
+    // street tag projection
+    if (tagWorld && now < tagUntil) {
+      const [wx, wy, wz] = tagWorld;
+      const cw = MVP[3] * wx + MVP[7] * wy + MVP[11] * wz + MVP[15];
+      if (cw > 0) {
+        const cx = (MVP[0] * wx + MVP[4] * wy + MVP[8] * wz + MVP[12]) / cw;
+        const cy = (MVP[1] * wx + MVP[5] * wy + MVP[9] * wz + MVP[13]) / cw;
+        $tag.style.display = 'block';
+        $tag.style.left = ((cx * 0.5 + 0.5) * innerWidth) + 'px';
+        $tag.style.top = ((0.5 - cy * 0.5) * innerHeight) + 'px';
+      } else $tag.style.display = 'none';
+    } else $tag.style.display = 'none';
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})().catch(err => {
+  $msg.textContent = 'erro: ' + err.message;
+  console.error(err);
+});
+</script>

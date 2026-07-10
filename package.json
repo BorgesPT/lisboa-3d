@@ -1,0 +1,16 @@
+{
+  "name": "lisboa-3d",
+  "version": "1.0.0",
+  "description": "Interactive 3D map of Lisbon - every building, street, hill, the Tejo and both bridges, in one self-contained HTML file",
+  "scripts": {
+    "fetch": "bash tools/fetch-data.sh",
+    "build": "node tools/build.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "pngjs": "^7.0.0"
+  }
+}
