@@ -12,6 +12,7 @@ fetch() {
 }
 
 fetch '[out:json][timeout:300];area["name"="Lisboa"]["admin_level"="7"]->.a;way["building"](area.a);out geom;' buildings.json
+fetch '[out:json][timeout:120];area["name"="Lisboa"]["admin_level"="7"]->.a;relation["building"](area.a);out geom;' buildings-rel.json
 fetch '[out:json][timeout:300];area["name"="Lisboa"]["admin_level"="7"]->.a;way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|pedestrian)$"](area.a);out geom;' roads.json
 fetch '[out:json][timeout:120];way["natural"="coastline"](38.58,-9.38,38.88,-8.85);out geom;' coastline.json
 fetch '[out:json][timeout:120];way["bridge"~"^(yes|viaduct)$"]["highway"~"^(motorway|trunk)$"](38.60,-9.30,38.82,-8.85);out geom;' bridges.json

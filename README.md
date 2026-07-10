@@ -1,12 +1,12 @@
 # Lisboa 3D
 
-Every building in Lisbon — all **52,965** of them — rendered in 3D in your browser, on the city's real hills, with the Tejo, the Ponte 25 de Abril, the Ponte Vasco da Gama, the Metro lines and the elétricos glowing at night.
+Every building in Lisbon — all **53,710** of them — rendered in 3D in your browser, on the city's real hills, with the Tejo, the Ponte 25 de Abril, the Ponte Vasco da Gama, the Metro lines and the elétricos glowing at night.
 
 One self-contained HTML file. No frameworks, no map SDK, no backend — just raw WebGL and open data.
 
 ## Features
 
-- **52,965 buildings** extruded at their real heights (OSM `height` / `building:levels` tags), sitting on real terrain
+- **53,710 buildings** extruded at their real heights (OSM `height` / `building:levels` tags), sitting on real terrain — including multipolygon monuments (Sé, Palácio de São Bento, Castelo walls)
 - **13,722 streets** draped over a two-level elevation model (~13 m resolution in the center), so Lisbon's ladeiras actually climb
 - **The Tejo** stitched from the real OSM coastline, with both bridges built procedurally on their true centerlines (suspension cables and all)
 - **Metro** — the 4 lines in their official colors, toggleable

@@ -42,6 +42,22 @@ function terra(xE, nN) {
 const bjson = JSON.parse(fs.readFileSync(path.join(DATA, 'buildings.json'), 'utf8'));
 let rings = [];
 let heightTagged = 0, levelTagged = 0;
+// plausible heights when OSM has neither height nor levels, by building type
+const TYPE_H = {
+  cathedral: 26, church: 15, chapel: 7, monastery: 16, convent: 16, mosque: 14, synagogue: 14,
+  castle: 13, fort: 11, tower: 22, palace: 18, government: 16, train_station: 15, stadium: 26,
+};
+function heightFor(t, id) {
+  let h = NaN;
+  if (t.height) h = parseFloat(String(t.height).replace(',', '.'));
+  if (isFinite(h) && h > 0) { heightTagged++; }
+  else {
+    const lv = parseFloat(t['building:levels']);
+    if (isFinite(lv) && lv > 0) { h = lv * 3.2 + 1.5; levelTagged++; }
+    else h = TYPE_H[t.building] || 4.5 + (id % 17) * 0.55;
+  }
+  return Math.min(Math.max(h, 2.5), 300);
+}
 for (const el of bjson.elements) {
   if (el.type !== 'way' || !el.geometry) continue;
   const t = el.tags || {};
@@ -62,16 +78,65 @@ for (const el of bjson.elements) {
     pts.push([x, y]);
   }
   if (!ok || pts.length < 3) continue;
-  let h = NaN;
-  if (t.height) h = parseFloat(String(t.height).replace(',', '.'));
-  if (isFinite(h) && h > 0) { heightTagged++; }
-  else {
-    const lv = parseFloat(t['building:levels']);
-    if (isFinite(lv) && lv > 0) { h = lv * 3.2 + 1.5; levelTagged++; }
-    else h = 4.5 + (el.id % 17) * 0.55;
+  rings.push({ pts, h: heightFor(t, el.id) });
+}
+
+/* building relations (multipolygons: castles, cathedrals, palaces).
+   Outer rings only; courtyard holes are filled, which is fine at night. */
+function assembleRings(segs) {
+  const out = [];
+  const used = new Set();
+  const key = p => p[0].toFixed(7) + ',' + p[1].toFixed(7);
+  for (let i = 0; i < segs.length; i++) {
+    if (used.has(i) || segs[i].length < 2) continue;
+    used.add(i);
+    let ring = segs[i].slice();
+    let grew = true;
+    while (grew && key(ring[0]) !== key(ring[ring.length - 1])) {
+      grew = false;
+      for (let j = 0; j < segs.length; j++) {
+        if (used.has(j) || segs[j].length < 2) continue;
+        const w = segs[j];
+        if (key(w[0]) === key(ring[ring.length - 1])) { ring = ring.concat(w.slice(1)); used.add(j); grew = true; }
+        else if (key(w[w.length - 1]) === key(ring[ring.length - 1])) { ring = ring.concat(w.slice().reverse().slice(1)); used.add(j); grew = true; }
+        else if (key(w[w.length - 1]) === key(ring[0])) { ring = w.slice(0, -1).concat(ring); used.add(j); grew = true; }
+        else if (key(w[0]) === key(ring[0])) { ring = w.slice().reverse().slice(0, -1).concat(ring); used.add(j); grew = true; }
+      }
+    }
+    if (key(ring[0]) === key(ring[ring.length - 1]) && ring.length >= 4) out.push(ring);
   }
-  h = Math.min(Math.max(h, 2.5), 300);
-  rings.push({ pts, h });
+  return out;
+}
+const brelPath = path.join(DATA, 'buildings-rel.json');
+if (fs.existsSync(brelPath)) {
+  const bre = JSON.parse(fs.readFileSync(brelPath, 'utf8'));
+  let relRings = 0;
+  for (const rel of bre.elements) {
+    if (rel.type !== 'relation' || !rel.members) continue;
+    const t = rel.tags || {};
+    if (!t.building || t.building === 'no') continue;
+    const segs = rel.members
+      .filter(m => m.type === 'way' && m.geometry && (m.role === 'outer' || !m.role))
+      .map(m => m.geometry.map(pnt => [pnt.lat, pnt.lon]));
+    for (const ring of assembleRings(segs)) {
+      const pts = [];
+      let ok = true;
+      for (const [lat, lon] of ring) {
+        const [x, y] = proj(lat, lon);
+        if (!inRange(x) || !inRange(y)) { ok = false; break; }
+        const last = pts[pts.length - 1];
+        if (last && last[0] === x && last[1] === y) continue;
+        pts.push([x, y]);
+      }
+      if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+      if (!ok || pts.length < 3 || pts.length > 4000) continue;
+      rings.push({ pts, h: heightFor(t, rel.id) });
+      relRings++;
+    }
+  }
+  console.log(`building relations: +${relRings} outer rings`);
+} else {
+  console.log('building relations: data/buildings-rel.json missing, skipping');
 }
 let totalPts = 0;
 for (const r of rings) totalPts += r.pts.length;
@@ -543,6 +608,46 @@ for (const rw of runways) {
     seg([L[i - 1][0], L[i - 1][1], L[i - 1][2] + 0.5], [L[i][0], L[i][1], L[i][2] + 0.5], RWY_EDGE);
     seg([R[i - 1][0], R[i - 1][1], R[i - 1][2] + 0.5], [R[i][0], R[i][1], R[i][2] + 0.5], RWY_EDGE);
   }
+}
+
+/* ---- castle & city walls: floodlit ramparts draped up the hill ---- */
+const wallsPath = path.join(DATA, 'walls.json');
+if (fs.existsSync(wallsPath)) {
+  const wjson = JSON.parse(fs.readFileSync(wallsPath, 'utf8'));
+  const WALL_TOP = [222, 178, 116], WALL_SIDE = [178, 136, 88];
+  let nWalls = 0;
+  for (const el of wjson.elements) {
+    if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
+    const t = el.tags || {};
+    const h = Math.min(parseFloat(t.height) || 8, 30);
+    const half = ((parseFloat(t.width) || 2.6) / 2) + 0.4;
+    const line = resample(el.geometry.map(pnt => projM(pnt.lat, pnt.lon)), 12);
+    const L = [], R = [], B = [], T = [];
+    for (let i = 0; i < line.length; i++) {
+      const a = line[Math.max(0, i - 1)], b = line[Math.min(line.length - 1, i + 1)];
+      let dx = b[0] - a[0], dn = b[1] - a[1];
+      const l = Math.hypot(dx, dn) || 1; dx /= l; dn /= l;
+      const e = terra(line[i][0], line[i][1]);
+      L.push([line[i][0] - dn * half, line[i][1] + dx * half]);
+      R.push([line[i][0] + dn * half, line[i][1] - dx * half]);
+      B.push(e - 1.5); T.push(e + h);
+    }
+    for (let i = 1; i < line.length; i++) {
+      meshQuad(
+        [[L[i - 1][0], L[i - 1][1], T[i - 1]], [R[i - 1][0], R[i - 1][1], T[i - 1]], [R[i][0], R[i][1], T[i]], [L[i][0], L[i][1], T[i]]],
+        [WALL_TOP, WALL_TOP, WALL_TOP, WALL_TOP]);
+      const ex = line[i][0] - line[i - 1][0], en = line[i][1] - line[i - 1][1];
+      const el2 = Math.hypot(ex, en) || 1;
+      const w1 = shadeWall(WALL_SIDE, en / el2, -ex / el2);
+      const w2 = shadeWall(WALL_SIDE, -en / el2, ex / el2);
+      meshQuad([[L[i - 1][0], L[i - 1][1], B[i - 1]], [L[i][0], L[i][1], B[i]], [L[i][0], L[i][1], T[i]], [L[i - 1][0], L[i - 1][1], T[i - 1]]], [w1, w1, w1, w1]);
+      meshQuad([[R[i - 1][0], R[i - 1][1], B[i - 1]], [R[i][0], R[i][1], B[i]], [R[i][0], R[i][1], T[i]], [R[i - 1][0], R[i - 1][1], T[i - 1]]], [w2, w2, w2, w2]);
+    }
+    nWalls++;
+  }
+  console.log(`walls: ${nWalls} rampart ways extruded`);
+} else {
+  console.log('walls: data/walls.json missing, skipping');
 }
 
 console.log(`bridge+runway mesh: ${mesh.pos.length / 3} verts, lines: ${blines.pos.length / 6} segs`);
