@@ -607,6 +607,50 @@ for (const w of tways) {
 }
 console.log(`transit: ${lines.length} lines (${lines.map(l => l.name).join(', ')}), ${tways.length} ways, ${tPts} pts`);
 
+/* ================= freguesia borders + labels ================= */
+let fbuf = Buffer.alloc(0), freguesias = [];
+const fregPath = path.join(DATA, 'freguesias.json');
+if (fs.existsSync(fregPath)) {
+  const fjson = JSON.parse(fs.readFileSync(fregPath, 'utf8'));
+  const seenWays = new Set();
+  let fways = [];
+  for (const rel of fjson.elements) {
+    if (rel.type !== 'relation' || !rel.members) continue;
+    const nm = rel.tags?.name;
+    if (!nm) continue;
+    let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (const m of rel.members) {
+      if (m.type !== 'way' || !m.geometry || m.role !== 'outer') continue;
+      let pts = [];
+      for (const pnt of m.geometry) {
+        const [x, y] = proj(pnt.lat, pnt.lon);
+        if (!inRange(x) || !inRange(y)) { pts = null; break; }
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+        const last = pts && pts[pts.length - 1];
+        if (last && last[0] === x && last[1] === y) continue;
+        pts.push([x, y]);
+      }
+      if (!pts || pts.length < 2 || seenWays.has(m.ref)) continue; // shared borders draw once
+      seenWays.add(m.ref);
+      pts = subdivide(simplify(pts, 2), 25 * Q);
+      if (pts.length >= 2 && pts.length < 65000) fways.push(pts);
+    }
+    if (minX < 1e9) freguesias.push([nm, Math.round((minX + maxX) / 2), Math.round((minY + maxY) / 2)]);
+  }
+  let fPts = 0;
+  for (const w of fways) fPts += w.length;
+  fbuf = Buffer.alloc(fways.length * 2 + fPts * 4);
+  o = 0;
+  for (const w of fways) {
+    fbuf.writeUInt16LE(w.length, o); o += 2;
+    for (const [x, y] of w) { fbuf.writeInt16LE(x, o); o += 2; fbuf.writeInt16LE(y, o); o += 2; }
+  }
+  console.log(`freguesias: ${freguesias.length}, ${fways.length} border ways, ${fPts} pts`);
+} else {
+  console.log('freguesias: data/freguesias.json missing, skipping');
+}
+
 /* ================= landmarks ================= */
 const LM = [
   ['Baixa', 38.7106, -9.1373, 2200, 0.95],
@@ -630,6 +674,8 @@ html = html
   .replace('"__B64_HEIGHT__"', JSON.stringify(Buffer.from(hmAll).toString('base64')))
   .replace('"__B64_TRANSIT__"', JSON.stringify(tbuf.toString('base64')))
   .replace('"__TRANSIT_LINES__"', JSON.stringify(transitLines))
+  .replace('"__B64_FREG__"', JSON.stringify(fbuf.toString('base64')))
+  .replace('"__FREGUESIAS__"', JSON.stringify(freguesias))
   .replace('"__NAMES__"', JSON.stringify(names))
   .replace('"__WATER__"', JSON.stringify({ pos: waterPos, idx: waterIdx }))
   .replace('"__BRIDGE_MESH__"', JSON.stringify(mesh))

@@ -108,6 +108,13 @@
     padding: 8px 11px; cursor: pointer; backdrop-filter: blur(8px);
   }
   #sr button:hover, #sr button.sel { border-color: var(--tram); color: var(--tram); }
+  #freglabels { inset: 0; overflow: hidden; z-index: 2; }
+  #freglabels span {
+    position: absolute; transform: translate(-50%, -50%);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--ink-dim); text-shadow: 0 0 8px rgba(3, 4, 12, 0.9), 0 1px 2px rgba(3, 4, 12, 0.9);
+    white-space: nowrap; will-change: opacity, left, top;
+  }
   #tag { display: none; z-index: 4; transform: translate(-50%, -100%); padding-bottom: 14px; }
   #tag .chip {
     font: 600 13px/1.2 system-ui, sans-serif; color: var(--night);
@@ -200,12 +207,15 @@
 <div class="hud" id="places">
   <div class="lbl">Voar para</div>
   <button id="transitToggle" aria-pressed="true"><span class="dot" style="background:#5283C5"></span><span class="dot" style="background:#FDB913"></span><span class="dot" style="background:#00AAA6"></span><span class="dot" style="background:#EE2B74"></span>&nbsp;Metro</button>
+  <button id="fregToggle" aria-pressed="true"><span class="dot" style="background:#6074b4"></span>&nbsp;Freguesias</button>
 </div>
 
 <div class="hud" id="search">
   <input id="si" type="search" placeholder="procurar rua…" autocomplete="off" spellcheck="false" aria-label="procurar rua">
   <div id="sr"></div>
 </div>
+
+<div class="hud" id="freglabels"></div>
 
 <div class="hud" id="tag"><div class="chip" id="tagname"></div></div>
 
@@ -239,6 +249,8 @@ const BRIDGE_LINES = "__BRIDGE_LINES__";
 const LANDMARKS = "__LANDMARKS__";
 const B64_TRANSIT = "__B64_TRANSIT__";
 const TRANSIT_LINES = "__TRANSIT_LINES__";
+const B64_FREG = "__B64_FREG__";
+const FREGUESIAS = "__FREGUESIAS__";
 
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $bar = document.querySelector('#bar i');
@@ -495,6 +507,38 @@ function buildTransit() {
   }
   pk.start[w] = po / 3;
   transitPick = pk;
+  return { pos, col, n: vo };
+}
+
+function buildFreg() {
+  const bytes = b64ToBytes(B64_FREG);
+  const dv = new DataView(bytes.buffer);
+  let o = 0, segs = 0;
+  while (o < bytes.length) {
+    const n = dv.getUint16(o, true); o += 2 + n * 4;
+    segs += n - 1;
+  }
+  const pos = new Float32Array(segs * 2 * 3);
+  const col = new Uint8Array(segs * 2 * 3);
+  const c = [96, 116, 180];
+  let vo = 0;
+  o = 0;
+  while (o < bytes.length) {
+    const n = dv.getUint16(o, true); o += 2;
+    let px = 0, py = 0, pz = 0;
+    for (let i = 0; i < n; i++) {
+      const x = dv.getInt16(o, true) * 0.5; o += 2;
+      const z = -dv.getInt16(o, true) * 0.5; o += 2;
+      const y = terra(x, z) + 1.2;
+      if (i > 0) {
+        pos[vo * 3] = px; pos[vo * 3 + 1] = py; pos[vo * 3 + 2] = pz;
+        col[vo * 3] = c[0]; col[vo * 3 + 1] = c[1]; col[vo * 3 + 2] = c[2]; vo++;
+        pos[vo * 3] = x; pos[vo * 3 + 1] = y; pos[vo * 3 + 2] = z;
+        col[vo * 3] = c[0]; col[vo * 3 + 1] = c[1]; col[vo * 3 + 2] = c[2]; vo++;
+      }
+      px = x; py = y; pz = z;
+    }
+  }
   return { pos, col, n: vo };
 }
 
@@ -844,6 +888,7 @@ function clampTarget() {
 }
 const keys = new Set();
 let transitOn = true;
+let fregOn = true;
 addEventListener('keydown', e => {
   if (e.target && e.target.tagName === 'INPUT') return;
   const k = e.key.toLowerCase();
@@ -878,6 +923,7 @@ function applyKeys() {
   const roads = buildRoads();
   roadPick = roads.pk;
   const transit = buildTransit();
+  const freg = buildFreg();
   const ground = buildGround();
   const water = buildWater();
   const bridges = buildBridges();
@@ -890,6 +936,7 @@ function applyKeys() {
   const mBridge = makeMesh(bridges, true);
   const mRoads = makeMesh(roads, false);
   const mTransit = makeMesh(transit, false);
+  const mFreg = makeMesh(freg, false);
   $bar.style.width = '100%';
 
   const $places = document.getElementById('places');
@@ -905,6 +952,22 @@ function applyKeys() {
   document.getElementById('aboutClose').addEventListener('click', () => { $about.hidden = true; });
   $about.addEventListener('click', e => { if (e.target === $about) $about.hidden = true; });
   addEventListener('keydown', e => { if (e.key === 'Escape') $about.hidden = true; });
+
+  const $fl = document.getElementById('freglabels');
+  const fregEls = FREGUESIAS.map(([nm, ux, uy]) => {
+    const el = document.createElement('span');
+    el.textContent = nm;
+    $fl.appendChild(el);
+    const x = ux * 0.5, z = -uy * 0.5;
+    return { el, x, z, y: terra(x, z) + 15 };
+  });
+  const $ft = document.getElementById('fregToggle');
+  $ft.addEventListener('click', () => {
+    fregOn = !fregOn;
+    $ft.classList.toggle('off', !fregOn);
+    $ft.setAttribute('aria-pressed', String(fregOn));
+    if (!fregOn) for (const f of fregEls) f.el.style.opacity = '0';
+  });
 
   const $tt = document.getElementById('transitToggle');
   $tt.addEventListener('click', () => {
@@ -1071,8 +1134,28 @@ function applyKeys() {
     gl.uniform1f(sh.uMode, 1);
     bindMesh(sh, mRoads);
     gl.drawArrays(gl.LINES, 0, mRoads.count);
+    if (fregOn) {
+      bindMesh(sh, mFreg);
+      gl.drawArrays(gl.LINES, 0, mFreg.count);
+    }
     gl.disable(gl.BLEND);
     gl.depthMask(true);
+
+    // freguesia labels: only at neighborhood zoom
+    if (fregOn) {
+      const fade = Math.min(clamp01((cam.dist - 1500) / 1000), clamp01((11000 - cam.dist) / 3000));
+      for (const f of fregEls) {
+        if (fade <= 0) { f.el.style.opacity = '0'; continue; }
+        const cw = MVP[3] * f.x + MVP[7] * f.y + MVP[11] * f.z + MVP[15];
+        if (cw <= 0) { f.el.style.opacity = '0'; continue; }
+        const sx = (MVP[0] * f.x + MVP[4] * f.y + MVP[8] * f.z + MVP[12]) / cw;
+        const sy = (MVP[1] * f.x + MVP[5] * f.y + MVP[9] * f.z + MVP[13]) / cw;
+        if (sx < -1.1 || sx > 1.1 || sy < -1.1 || sy > 1.1) { f.el.style.opacity = '0'; continue; }
+        f.el.style.opacity = String(fade * 0.9);
+        f.el.style.left = ((sx * 0.5 + 0.5) * innerWidth) + 'px';
+        f.el.style.top = ((0.5 - sy * 0.5) * innerHeight) + 'px';
+      }
+    }
 
     // street tag projection
     if (tagWorld && now < tagUntil) {
